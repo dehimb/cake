@@ -9,8 +9,7 @@ type User struct {
 }
 
 type Statistic struct {
-	sync.Mutex
-	UserId        uint64
+	UserID        uint64
 	DepositeCount int
 	DepositSum    float32
 	BetCount      int
@@ -20,9 +19,9 @@ type Statistic struct {
 }
 
 type Deposit struct {
-	ID     uint64
-	UserID uint64
-	Amount float32
+	ID     uint64  `json:"depositId"`
+	UserID uint64  `json:"userId"`
+	Amount float32 `json:"amount"`
 }
 
 type TransactionType string
@@ -41,6 +40,5 @@ type Transaction struct {
 
 type PendingActions struct {
 	sync.Mutex
-	Deposits     []Deposit
-	Transactions []Transaction
+	users []*User
 }

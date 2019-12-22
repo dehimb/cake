@@ -25,6 +25,11 @@ type MiddlewareDispatcher interface {
 	populate() []mux.MiddlewareFunc
 }
 
+// Validate token from client request
+func IsTokenValid(token string) bool {
+	return len(token) > 0
+}
+
 // This method used to check preflight requests
 func (m *middleware) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,18 +68,16 @@ func (m *middleware) checkToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
-			if token := r.URL.Query().Get("token"); m.storeHandler.IsTokenValid(token) {
+			if token := r.URL.Query().Get("token"); IsTokenValid(token) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// TODO move this logic to method
-			w.Write([]byte("Invalid token"))
-			w.WriteHeader(http.StatusForbidden)
+			sendErrorResponse(w, "Invalid token", http.StatusBadRequest)
 		case "POST", "PUT":
 			body, err := ioutil.ReadAll(r.Body)
 			if err != nil {
 				m.logger.Error("Failed to read request body: ", err)
-				w.WriteHeader(http.StatusInternalServerError)
+				sendErrorResponse(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 
@@ -82,19 +85,18 @@ func (m *middleware) checkToken(next http.Handler) http.Handler {
 			err = json.Unmarshal(body, &data)
 			if err != nil {
 				log.Printf("Error reading body: %v", err)
-				http.Error(w, "can't read body", http.StatusBadRequest)
+				sendErrorResponse(w, "Invalid token", http.StatusBadRequest)
 				return
 			}
 
-			if token, _ := data["token"].(string); m.storeHandler.IsTokenValid(token) {
+			if token, _ := data["token"].(string); IsTokenValid(token) {
 				r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 				next.ServeHTTP(w, r)
 				return
 			}
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Invalid token"))
+			sendErrorResponse(w, "Invalid token", http.StatusBadRequest)
 		default:
-			w.WriteHeader(http.StatusNotFound)
+			sendErrorResponse(w, "Not found", http.StatusNotFound)
 		}
 	})
 }

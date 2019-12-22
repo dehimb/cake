@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -18,12 +20,22 @@ var testHandler *handler
 type MockStoreHandler struct {
 }
 
-func (storeHandler *MockStoreHandler) IsTokenValid(token string) bool {
-	return true
-}
-
 func (storeHandler *MockStoreHandler) CreateUser(user *store.User) error {
 	return nil
+}
+
+func (storeHandler *MockStoreHandler) CreateDeposit(d *store.Deposit) (float32, error) {
+	return 0, nil
+}
+
+func (storeHandler *MockStoreHandler) GetUser(userID uint64) (*store.User, *store.Statistic, error) {
+	if userID == 1 {
+		return &store.User{}, &store.Statistic{}, nil
+	}
+	if userID == 2 {
+		return nil, nil, errors.New("Unknown error")
+	}
+	return nil, nil, &store.NotFoundError{}
 }
 
 type MockMiddlware struct {
@@ -42,21 +54,21 @@ func init() {
 	testHandler.initRouter(&MockMiddlware{})
 }
 
-func TestCreateUser(t *testing.T) {
+func TestUserPost(t *testing.T) {
 	testCases := []struct {
-		name string
-		body string
-		code int
+		name         string
+		body         string
+		expectedCode int
 	}{
 		{
-			name: "Valid request",
-			body: `{"token": "tkn", "id": 10, "balance": 100}`,
-			code: http.StatusOK,
+			name:         "Valid request",
+			body:         `{"token": "tkn", "id": 10, "balance": 100}`,
+			expectedCode: http.StatusOK,
 		},
 		{
-			name: "Invalid request",
-			body: `malformed json`,
-			code: http.StatusBadRequest,
+			name:         "Invalid request",
+			body:         `malformed json`,
+			expectedCode: http.StatusBadRequest,
 		},
 	}
 
@@ -68,7 +80,53 @@ func TestCreateUser(t *testing.T) {
 			testHandler.ServeHTTP(rec, req)
 			bodyBytes, _ := ioutil.ReadAll(rec.Body)
 			t.Log(string(bodyBytes))
-			assert.Equal(t, testCase.code, rec.Code)
+			assert.Equal(t, testCase.expectedCode, rec.Code)
 		})
 	}
+
+}
+func TestUserGet(t *testing.T) {
+	testCases := []struct {
+		name         string
+		userID       uint64
+		expectedCode int
+	}{
+		{
+			name:         "Invalid user id",
+			userID:       0,
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "Valid request",
+			userID:       1,
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "Unknown error",
+			userID:       2,
+			expectedCode: http.StatusInternalServerError,
+		},
+		{
+			name:         "User not found",
+			userID:       3332,
+			expectedCode: http.StatusNotFound,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			// _, _, err := testHandler.storeHandler.GetUser(testCase.userID)
+			t.Logf("ERR: %T", testHandler.storeHandler)
+			req, _ := http.NewRequest("GET", fmt.Sprintf("/user?token=tkn&id=%d", testCase.userID), nil)
+			testHandler.ServeHTTP(rec, req)
+			bodyBytes, _ := ioutil.ReadAll(rec.Body)
+			t.Log(string(bodyBytes))
+			assert.Equal(t, testCase.expectedCode, rec.Code)
+
+		})
+	}
+}
+
+func TestDepositPost(t *testing.T) {
+	t.Error("ERR")
 }

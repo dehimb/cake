@@ -6,10 +6,11 @@ const CreateTables string = `
 		"balance"	REAL NOT NULL DEFAULT 0,
 		PRIMARY KEY("id")
 	);
-	CREATE TABLE IF NOT EXISTS "depostis" (
+	CREATE TABLE IF NOT EXISTS "deposits" (
 		"id"	INTEGER NOT NULL UNIQUE,
 		"user_id"	INTEGER NOT NULL,
-		"amount"	REAL NOT NULL,
+		"balanceBefore"	REAL NOT NULL,
+		"balanceAfter"	REAL NOT NULL,
 		PRIMARY KEY("id")
 	);
 	CREATE TABLE IF NOT EXISTS "transactions" (
@@ -22,5 +23,5 @@ const CreateTables string = `
 	`
 const CreateIndexes string = `
 	CREATE INDEX IF NOT EXISTS "transaction_user_id" ON "transactions" ( "user_id" ASC );
-	CREATE INDEX IF NOT EXISTS "deposit_user_id" ON "depostis" ( "user_id" ASC );
+	CREATE INDEX IF NOT EXISTS "deposit_user_id" ON "deposits" ( "user_id" ASC );
 `
