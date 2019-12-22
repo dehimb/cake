@@ -4,8 +4,8 @@ import "sync"
 
 type User struct {
 	sync.Mutex
-	ID      uint64
-	Balance float32
+	ID      uint64  `json:"id"`
+	Balance float32 `json:"balance"`
 }
 
 type Statistic struct {

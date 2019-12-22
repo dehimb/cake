@@ -22,7 +22,7 @@ func main() {
 
 	go func() {
 		signal := <-c
-		logger.Infof("Signal:%s", signal)
+		logger.Infof("Signal: %s", signal)
 		cancel()
 	}()
 

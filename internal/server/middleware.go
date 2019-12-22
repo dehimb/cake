@@ -1,6 +1,10 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 
@@ -43,6 +47,8 @@ func (m *middleware) logRequest(next http.Handler) http.Handler {
 	})
 }
 
+// TODO add maxBytesReader middleware
+
 // Validate tokens for every client request
 func (m *middleware) checkToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,14 +58,39 @@ func (m *middleware) checkToken(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			// TODO move this logic to method
 			w.Write([]byte("Invalid token"))
 			w.WriteHeader(http.StatusForbidden)
 		case "POST", "PUT":
+			body, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				m.logger.Error("Failed to read request body: ", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			var data map[string]interface{}
+			err = json.Unmarshal(body, &data)
+			if err != nil {
+				log.Printf("Error reading body: %v", err)
+				http.Error(w, "can't read body", http.StatusBadRequest)
+				return
+			}
+
+			if token, _ := data["token"].(string); m.store.IsTokenValid(token) {
+				r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+				next.ServeHTTP(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Invalid token"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	})
 }
+
+// TODO add validator for content type
 
 // Method used for providing all middlewares at one place
 // Declare all midlwares and add them to return array

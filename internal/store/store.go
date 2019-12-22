@@ -23,7 +23,7 @@ type ValidationError struct {
 }
 
 func (e *ValidationError) Error() string {
-	return e.Error()
+	return fmt.Sprintf("%s", e.Err)
 }
 
 func (e *ValidationError) Unwrap() error {
@@ -63,6 +63,25 @@ func (s *Store) init(ctx context.Context) {
 	if err != nil {
 		s.logger.Fatal("Can't create indexes: ", err)
 	}
+	// init cache
+	s.users = make(map[uint64]*User)
+	rows, err := s.db.Query("SELECT * FROM users")
+	if err != nil {
+		s.logger.Fatal("Can't load cached users: ", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uint64
+		var balance float32
+		err = rows.Scan(&id, &balance)
+		if err != nil {
+			s.logger.Error("Can't read user from db: ", err)
+		}
+		s.users[id] = &User{
+			ID:      id,
+			Balance: balance,
+		}
+	}
 	go func() {
 		// Listen for context done signal and close connection
 		<-ctx.Done()
@@ -81,22 +100,24 @@ func (s *Store) IsTokenValid(token string) bool {
 }
 
 // Create new user or return error
-func (s *Store) createUser(user *User) error {
+func (s *Store) CreateUser(user *User) error {
 	// check, is user already exists
 	if _, ok := s.users[user.ID]; ok {
 		return &ValidationError{errors.New("User already exists")}
 	}
 	// check balance
-	if user.Balance <= 0 {
-		return &ValidationError{errors.New("User balance may be greater than 0")}
+	if user.Balance < 0 {
+		return &ValidationError{errors.New("User balance may not be negative")}
 	}
-	stmt, err := s.db.Prepare("INSERT INTO users(id, name) values(?, ?)")
+	stmt, err := s.db.Prepare("INSERT INTO users(id, balance) values(?, ?)")
 	if err != nil {
 		return &InternalError{Message: "Error when creating db statement", Err: err}
 	}
 	if _, err = stmt.Exec(user.ID, user.Balance); err != nil {
 		return &InternalError{Message: "Error executing insert user db request", Err: err}
 	}
+	// add user to cache
+	s.users[user.ID] = user
 	if err = stmt.Close(); err != nil {
 		return &InternalError{Message: "Error when close db statement", Err: err}
 	}

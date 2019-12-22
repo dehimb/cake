@@ -48,7 +48,7 @@ func waitForShutdown(ctx context.Context, s *http.Server, logger *logrus.Logger)
 	defer cancel()
 
 	if err := s.Shutdown(ctxShutDown); err != http.ErrServerClosed {
-		logger.Fatalf("Server shutdown failed: %s", err)
+		logger.Errorf("Server shutdown failed: %s", err)
 		return
 	}
 	logger.Info("Server stopped")
