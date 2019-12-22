@@ -11,16 +11,12 @@ import (
 )
 
 type handler struct {
-	router *mux.Router
-	store  *store.Store
-	logger *logrus.Logger
+	router       *mux.Router
+	storeHandler store.StoreHandler
+	logger       *logrus.Logger
 }
 
-func (h *handler) initRouter() {
-	m := &middleware{
-		logger: h.logger,
-		store:  h.store,
-	}
+func (h *handler) initRouter(m MiddlewareDispatcher) {
 	// Provide all middlewares from one method
 	h.router.Use(m.populate()...)
 
@@ -42,7 +38,7 @@ func (h *handler) userPost(w http.ResponseWriter, r *http.Request) {
 		h.sendResponse(w, http.StatusBadRequest, &ErrorResponse{Error: "Invalid request"})
 		return
 	}
-	err = h.store.CreateUser(&u)
+	err = h.storeHandler.CreateUser(&u)
 	if err != nil {
 		var validationError *store.ValidationError
 		var internalError *store.InternalError
@@ -71,6 +67,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) parseRequestBody(r *http.Request, dst interface{}) error {
+	// TODO move content type check to middleware
 	if r.Header.Get("Content-Type") != "application/json" {
 		return errors.New("Invalid content type")
 	}

@@ -26,5 +26,5 @@ func main() {
 		cancel()
 	}()
 
-	server.Start(ctx, store.New(ctx, logger), logger)
+	server.Start(ctx, store.New(ctx, logger, "cake.db"), logger)
 }

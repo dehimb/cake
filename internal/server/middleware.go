@@ -17,8 +17,12 @@ import (
 // Middlewares functions works like interceptors for every http request.
 // Methods provides ability to stop or propagate request to the chain.
 type middleware struct {
-	logger *logrus.Logger
-	store  *store.Store
+	logger       *logrus.Logger
+	storeHandler store.StoreHandler
+}
+
+type MiddlewareDispatcher interface {
+	populate() []mux.MiddlewareFunc
 }
 
 // This method used to check preflight requests
@@ -39,6 +43,11 @@ func (m *middleware) logRequest(next http.Handler) http.Handler {
 		if m.logger.Level >= logrus.InfoLevel {
 			start := time.Now()
 			m.logger.Infof("-> %s %s", r.Method, r.URL)
+			if r.Method == "POST" || r.Method == "PUT" {
+				body, _ := ioutil.ReadAll(r.Body)
+				m.logger.Info("Body: ", string(body))
+				r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+			}
 			next.ServeHTTP(w, r)
 			m.logger.Infof("<-  %s %s %s", time.Since(start), r.Method, r.URL)
 			return
@@ -54,7 +63,7 @@ func (m *middleware) checkToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
-			if token := r.URL.Query().Get("token"); m.store.IsTokenValid(token) {
+			if token := r.URL.Query().Get("token"); m.storeHandler.IsTokenValid(token) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -77,7 +86,7 @@ func (m *middleware) checkToken(next http.Handler) http.Handler {
 				return
 			}
 
-			if token, _ := data["token"].(string); m.store.IsTokenValid(token) {
+			if token, _ := data["token"].(string); m.storeHandler.IsTokenValid(token) {
 				r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 				next.ServeHTTP(w, r)
 				return

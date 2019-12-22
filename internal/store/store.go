@@ -12,10 +12,15 @@ import (
 )
 
 type Store struct {
-	logger         *logrus.Logger
-	db             *sql.DB
-	users          map[uint64]*User
-	pendingActions PendingActions
+	logger *logrus.Logger
+	db     *sql.DB
+	users  map[uint64]*User
+	// pendingActions PendingActions
+}
+
+type StoreHandler interface {
+	CreateUser(user *User) error
+	IsTokenValid(token string) bool
 }
 
 type ValidationError struct {
@@ -43,15 +48,15 @@ func (e *InternalError) Unwrap() error {
 	return e.Err
 }
 
-func New(ctx context.Context, logger *logrus.Logger) *Store {
+func New(ctx context.Context, logger *logrus.Logger, dbName string) StoreHandler {
 	s := &Store{logger: logger}
-	s.init(ctx)
+	s.init(ctx, dbName)
 	return s
 }
 
-func (s *Store) init(ctx context.Context) {
+func (s *Store) init(ctx context.Context, dbName string) {
 	var err error
-	s.db, err = sql.Open("sqlite3", "cake.db")
+	s.db, err = sql.Open("sqlite3", dbName)
 	if err != nil {
 		s.logger.Fatal("Can't open database: ", err)
 	}
@@ -95,12 +100,12 @@ func (s *Store) init(ctx context.Context) {
 }
 
 // Validate token from client request
-func (s *Store) IsTokenValid(token string) bool {
+func (s Store) IsTokenValid(token string) bool {
 	return len(token) > 0
 }
 
 // Create new user or return error
-func (s *Store) CreateUser(user *User) error {
+func (s Store) CreateUser(user *User) error {
 	// check, is user already exists
 	if _, ok := s.users[user.ID]; ok {
 		return &ValidationError{errors.New("User already exists")}

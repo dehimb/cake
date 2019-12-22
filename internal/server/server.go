@@ -10,11 +10,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func Start(ctx context.Context, store *store.Store, logger *logrus.Logger) {
+func Start(ctx context.Context, storeHandler store.StoreHandler, logger *logrus.Logger) {
 	handler := &handler{
-		router: mux.NewRouter(),
-		store:  store,
-		logger: logger,
+		router:       mux.NewRouter(),
+		storeHandler: storeHandler,
+		logger:       logger,
 	}
 	s := &http.Server{
 		Addr:         ":8080",
@@ -23,7 +23,12 @@ func Start(ctx context.Context, store *store.Store, logger *logrus.Logger) {
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
 	}
-	handler.initRouter()
+
+	m := &middleware{
+		logger:       logger,
+		storeHandler: storeHandler,
+	}
+	handler.initRouter(m)
 
 	go func() {
 		err := s.ListenAndServe()
@@ -36,6 +41,7 @@ func Start(ctx context.Context, store *store.Store, logger *logrus.Logger) {
 
 	waitForShutdown(ctx, s, logger)
 	// Wait untill all services can stop
+	// TODO change this logic
 	time.Sleep(1 * time.Second)
 	logger.Info("Exiting...")
 }
