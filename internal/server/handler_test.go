@@ -25,7 +25,10 @@ func (storeHandler *MockStoreHandler) CreateUser(user *store.User) error {
 }
 
 func (storeHandler *MockStoreHandler) CreateDeposit(d *store.Deposit) (float32, error) {
-	return 0, nil
+	if d.UserID == 0 {
+		return 0, &store.ValidationError{}
+	}
+	return 1, nil
 }
 
 func (storeHandler *MockStoreHandler) GetUser(userID uint64) (*store.User, *store.Statistic, error) {
@@ -115,8 +118,6 @@ func TestUserGet(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			// _, _, err := testHandler.storeHandler.GetUser(testCase.userID)
-			t.Logf("ERR: %T", testHandler.storeHandler)
 			req, _ := http.NewRequest("GET", fmt.Sprintf("/user?token=tkn&id=%d", testCase.userID), nil)
 			testHandler.ServeHTTP(rec, req)
 			bodyBytes, _ := ioutil.ReadAll(rec.Body)
@@ -128,5 +129,43 @@ func TestUserGet(t *testing.T) {
 }
 
 func TestDepositPost(t *testing.T) {
-	t.Error("ERR")
+	// TODO cover all error cases
+	testCases := []struct {
+		name         string
+		data         string
+		expectedCode int
+	}{
+		{
+			name:         "Malformed json",
+			data:         "Malformed json",
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "Validation error",
+			data:         `{"userId":0, "depositId":3440, "amount":50, "token":"tkn"}`,
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "Valid request",
+			data:         `{"userId":1, "depositId":100, "amount":50, "token":"tkn"}`,
+			expectedCode: http.StatusOK,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/user/deposit", bytes.NewBuffer([]byte(testCase.data)))
+			req.Header.Set("Content-Type", "application/json")
+			testHandler.ServeHTTP(rec, req)
+			bodyBytes, _ := ioutil.ReadAll(rec.Body)
+			t.Log(string(bodyBytes))
+			assert.Equal(t, testCase.expectedCode, rec.Code)
+
+		})
+	}
+}
+
+func TestTransactionPost(t *testing.T) {
+	// TODO Implement this
+
 }

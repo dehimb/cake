@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
@@ -23,6 +24,7 @@ type StoreHandler interface {
 	GetUser(userID uint64) (*User, *Statistic, error)
 	CreateUser(user *User) error
 	CreateDeposit(d *Deposit) (float32, error)
+	CreateTransaction(t *Transaction) (float32, error)
 }
 
 type TransactionError struct {
@@ -97,6 +99,9 @@ func (s *Store) init(ctx context.Context, dbName string) {
 
 	s.initCache()
 
+	// start ticker for periodic tasks
+	go s.startTicker(ctx)
+
 	go func() {
 		// Listen for context done signal and close connection
 		<-ctx.Done()
@@ -107,6 +112,22 @@ func (s *Store) init(ctx context.Context, dbName string) {
 		}
 		s.logger.Info("Database connection closed")
 	}()
+}
+
+func (s *Store) startTicker(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.logger.Info("tick...")
+			}
+		}
+	}()
+	ticker.Stop()
+	s.logger.Info("Ticker stopped")
 }
 
 func (s *Store) initCache() {
@@ -122,7 +143,7 @@ func (s *Store) initCache() {
 		var balance float32
 		err = userRows.Scan(&id, &balance)
 		if err != nil {
-			s.logger.Error("Can't read user from db: ", err)
+			s.logger.Fatal("Can't read user from db: ", err)
 		}
 		s.users[id] = &User{
 			ID:      id,
@@ -132,8 +153,60 @@ func (s *Store) initCache() {
 	// init users statistic
 	s.userStatistic = make(map[uint64]*Statistic)
 	for _, user := range s.users {
-		// TODO init statistic
-		s.userStatistic[user.ID] = &Statistic{UserID: user.ID}
+		depositRows, err := s.db.Query(fmt.Sprintf("SELECT balanceBefore, balanceAfter FROM deposits WHERE userId=%d", user.ID))
+		if err != nil {
+			s.logger.Fatal("Can't read deposits: ", err)
+		}
+		defer depositRows.Close()
+		var depositCount int
+		var depositSum float32
+		for depositRows.Next() {
+			var balanceBefore float32
+			var balanceAfter float32
+			err = depositRows.Scan(&balanceBefore, &balanceAfter)
+			if err != nil {
+				s.logger.Fatal("Can't read deposits: ", err)
+			}
+			depositCount += 1
+			depositSum += balanceAfter - balanceBefore
+		}
+
+		transactionRows, err := s.db.Query(fmt.Sprintf("SELECT type, amount FROM transactions WHERE userId=%d", user.ID))
+		if err != nil {
+			s.logger.Fatal("Can't read transitions: ", err)
+		}
+		defer transactionRows.Close()
+		var betCount int
+		var winCount int
+		var betSum float32
+		var winSum float32
+		for transactionRows.Next() {
+			var transactionType TransactionType
+			var amount float32
+			err = transactionRows.Scan(&transactionType, &amount)
+			if err != nil {
+				s.logger.Fatal("Can't read transactions: ", err)
+			}
+			switch transactionType {
+			case Bet:
+				betCount += 1
+				betSum += amount
+			case Win:
+				winCount += 1
+				winSum += amount
+			default:
+				s.logger.Warn("Unexpected transaction type: ", transactionType)
+			}
+		}
+		s.userStatistic[user.ID] = &Statistic{
+			UserID:        user.ID,
+			DepositeCount: depositCount,
+			DepositSum:    depositSum,
+			BetCount:      betCount,
+			BetSum:        betSum,
+			WinCount:      winCount,
+			WinSum:        winSum,
+		}
 	}
 }
 
@@ -184,14 +257,14 @@ func (s *Store) CreateDeposit(d *Deposit) (float32, error) {
 	if !ok {
 		return 0, &NotFoundError{errors.New("User not found")}
 	}
-	stmt, err := s.db.Prepare("INSERT INTO deposits(id, user_id, balanceBefore, balanceAfter) values(?, ?, ?, ?)")
+	stmt, err := s.db.Prepare("INSERT INTO deposits(id, userId, balanceBefore, balanceAfter, date) values(?, ?, ?, ?, ?)")
 	if err != nil {
 		return 0, &InternalError{Message: "Error when creating db statement", Err: err}
 	}
 	user.Lock()
 	oldBalance := user.Balance
 	newBalance := oldBalance + d.Amount
-	if _, err = stmt.Exec(d.ID, d.UserID, oldBalance, newBalance); err != nil {
+	if _, err = stmt.Exec(d.ID, d.UserID, oldBalance, newBalance, time.Now().Unix()); err != nil {
 		user.Unlock()
 		return 0, &TransactionError{Err: err}
 	}
@@ -200,6 +273,54 @@ func (s *Store) CreateDeposit(d *Deposit) (float32, error) {
 	if ok {
 		statistic.DepositeCount += 1
 		statistic.DepositSum += d.Amount
+	}
+	user.Unlock()
+	return newBalance, nil
+}
+
+func (s *Store) CreateTransaction(t *Transaction) (float32, error) {
+	if t.Amount <= 0 {
+		return 0, &ValidationError{Err: errors.New("Amount must be grater than 0")}
+	}
+	user, ok := s.users[t.UserID]
+	if !ok {
+		return 0, &NotFoundError{errors.New("User not found")}
+	}
+	oldBalance := user.Balance
+	var newBalance float32
+	switch t.Type {
+	case Bet:
+		// chek, is user has funds for this operation
+		newBalance = oldBalance - t.Amount
+		if newBalance < 0 {
+			return 0, &ValidationError{Err: errors.New("User doesn't have anough funds")}
+		}
+	case Win:
+		newBalance = oldBalance + t.Amount
+	default:
+		return 0, &ValidationError{Err: errors.New("Invalid transaction type")}
+	}
+
+	stmt, err := s.db.Prepare("INSERT INTO transactions(id, userId, type, amount, balanceBefore, balanceAfter, date) values(?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return 0, &InternalError{Message: "Error when creating db statement", Err: err}
+	}
+	user.Lock()
+	if _, err = stmt.Exec(t.ID, t.UserID, t.Type, t.Amount, oldBalance, newBalance, time.Now().Unix()); err != nil {
+		user.Unlock()
+		return 0, &TransactionError{Err: err}
+	}
+	user.Balance = newBalance
+	statistic, ok := s.userStatistic[t.UserID]
+	if ok {
+		switch t.Type {
+		case Bet:
+			statistic.BetCount += 1
+			statistic.BetSum += t.Amount
+		case Win:
+			statistic.WinCount += 1
+			statistic.WinSum += t.Amount
+		}
 	}
 	user.Unlock()
 	return newBalance, nil

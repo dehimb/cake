@@ -32,10 +32,10 @@ const (
 )
 
 type Transaction struct {
-	ID     uint64
-	UserID uint64
-	Type   TransactionType
-	Amount float64
+	ID     uint64          `json:"transactionId"`
+	UserID uint64          `json:"userId"`
+	Type   TransactionType `json:"type"`
+	Amount float32         `json:"amount"`
 }
 
 type PendingActions struct {

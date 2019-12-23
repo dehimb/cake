@@ -32,7 +32,7 @@ func Start(ctx context.Context, storeHandler store.StoreHandler, logger *logrus.
 
 	go func() {
 		err := s.ListenAndServe()
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Error starting server", err)
 		}
 	}()
@@ -53,7 +53,7 @@ func waitForShutdown(ctx context.Context, s *http.Server, logger *logrus.Logger)
 	ctxShutDown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.Shutdown(ctxShutDown); err != http.ErrServerClosed {
+	if err := s.Shutdown(ctxShutDown); err != nil {
 		logger.Errorf("Server shutdown failed: %s", err)
 		return
 	}

@@ -24,14 +24,34 @@ func (h *handler) initRouter(m MiddlewareDispatcher) {
 	h.router.HandleFunc("/user", h.userPost).Methods("POST")
 	h.router.HandleFunc("/user", h.userGet).Methods("GET")
 	h.router.HandleFunc("/user/deposit", h.depositPost).Methods("POST")
+	h.router.HandleFunc("/transaction", h.transactionPost).Methods("POST")
 	h.router.HandleFunc("/ping", h.ping).Methods("GET", "POST", "PUT")
 	h.router.PathPrefix("/").HandlerFunc(h.defaultHandler)
 }
 
+func (h *handler) transactionPost(w http.ResponseWriter, r *http.Request) {
+	var t store.Transaction
+	err := h.parseRequestBody(r, &t)
+	if err != nil {
+		sendErrorResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	balance, err := h.storeHandler.CreateTransaction(&t)
+	if err != nil {
+		h.processError(w, err)
+		return
+	}
+	h.sendResponse(w, http.StatusOK, &DepositResponse{
+		Balance: balance,
+		Errror:  "",
+	})
+	w.WriteHeader(http.StatusOK)
+}
 func (h *handler) defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
 }
 
+// For test purpose
 func (h *handler) ping(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
@@ -40,8 +60,7 @@ func (h *handler) depositPost(w http.ResponseWriter, r *http.Request) {
 	var d store.Deposit
 	err := h.parseRequestBody(r, &d)
 	if err != nil {
-		h.logger.Info("Bad request for deposit: ", err)
-		sendErrorResponse(w, "Invalid request", http.StatusBadRequest)
+		sendErrorResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	balance, err := h.storeHandler.CreateDeposit(&d)
@@ -135,12 +154,13 @@ func (h *handler) processError(w http.ResponseWriter, err error) {
 		return
 	case errors.As(err, &internalError):
 		h.logger.Error("Error when processing request: ", err)
-		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
+		sendErrorResponse(w, "Internal server error", http.StatusInternalServerError)
 		return
 	case errors.As(err, &notFoundError):
 		sendErrorResponse(w, err.Error(), http.StatusNotFound)
 		return
 	case errors.As(err, &transactionError):
+		h.logger.Warn("Transaction error: ", err)
 		sendErrorResponse(w, "Transaction error", http.StatusBadRequest)
 		return
 	default:
