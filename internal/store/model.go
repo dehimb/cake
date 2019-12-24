@@ -6,6 +6,7 @@ type User struct {
 	sync.Mutex
 	ID      uint64  `json:"id"`
 	Balance float32 `json:"balance"`
+	Updated bool
 }
 
 type Statistic struct {
@@ -36,9 +37,4 @@ type Transaction struct {
 	UserID uint64          `json:"userId"`
 	Type   TransactionType `json:"type"`
 	Amount float32         `json:"amount"`
-}
-
-type PendingActions struct {
-	sync.Mutex
-	users []*User
 }

@@ -115,21 +115,40 @@ func (s *Store) init(ctx context.Context, dbName string) {
 }
 
 func (s *Store) startTicker(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.logger.Info("tick...")
+				s.saveUpdatedUsers()
 			}
 		}
 	}()
 	ticker.Stop()
+	s.saveUpdatedUsers()
 	s.logger.Info("Ticker stopped")
 }
 
+func (s *Store) saveUpdatedUsers() {
+	for _, user := range s.users {
+		if user.Updated {
+			user.Lock()
+			stmt, err := s.db.Prepare("UPDATE users SET balance = ? WHERE id = ?")
+			if err != nil {
+				s.logger.Errorf("Can't prepare update statement: %+v", user)
+				continue
+			}
+			if _, err = stmt.Exec(user.Balance, user.ID); err != nil {
+				s.logger.Errorf("Can't update user: %+v", user)
+				continue
+			}
+			s.logger.Info("Save updated user: ", user.ID)
+			user.Unlock()
+		}
+	}
+}
 func (s *Store) initCache() {
 	// init users list
 	s.users = make(map[uint64]*User)
@@ -228,6 +247,7 @@ func (s *Store) CreateUser(user *User) error {
 		return &InternalError{Message: "Error executing insert user db request", Err: err}
 	}
 	// add user to cache
+	user.Updated = true
 	s.users[user.ID] = user
 	s.userStatistic[user.ID] = &Statistic{UserID: user.ID}
 	if err = stmt.Close(); err != nil {
@@ -274,6 +294,7 @@ func (s *Store) CreateDeposit(d *Deposit) (float32, error) {
 		statistic.DepositeCount += 1
 		statistic.DepositSum += d.Amount
 	}
+	user.Updated = true
 	user.Unlock()
 	return newBalance, nil
 }
@@ -322,6 +343,7 @@ func (s *Store) CreateTransaction(t *Transaction) (float32, error) {
 			statistic.WinSum += t.Amount
 		}
 	}
+	user.Updated = true
 	user.Unlock()
 	return newBalance, nil
 }

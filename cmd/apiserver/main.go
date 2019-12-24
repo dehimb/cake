@@ -22,8 +22,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
-		signal := <-c
-		logger.Infof("Signal: %s", signal)
+		sig := <-c
+		logger.Infof("Signal: %s", sig)
 		cancel()
 	}()
 
